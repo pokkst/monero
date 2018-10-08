@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2018, The Monero Project
+// Copyright (c) 2018, The Monero Project
 // 
 // All rights reserved.
 // 
@@ -26,51 +26,37 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include <boost/program_options.hpp>
-#include "include_base_utils.h"
-#include "string_tools.h"
-#include "common/command_line.h"
-#include "common/util.h"
-#include "fuzzer.h"
+#include <boost/algorithm/string.hpp>
+#include "misc_log_ex.h"
+#include "file_io_utils.h"
+#include "spawn.h"
+#include "notify.h"
 
-#if (!defined(__clang__) || (__clang__ < 5))
-static int __AFL_LOOP(int)
+namespace tools
 {
-  static int once = 0;
-  if (once)
-    return 0;
-  once = 1;
-  return 1;
+
+/*
+  TODO: 
+  - Improve tokenization to handle paths containing whitespaces, quotes, etc.
+  - Windows unicode support (implies implementing unicode command line parsing code)
+*/
+Notify::Notify(const char *spec)
+{
+  CHECK_AND_ASSERT_THROW_MES(spec, "Null spec");
+
+  boost::split(args, spec, boost::is_any_of(" "));
+  CHECK_AND_ASSERT_THROW_MES(args.size() > 0, "Failed to parse spec");
+  filename = args[0];
+  CHECK_AND_ASSERT_THROW_MES(epee::file_io_utils::is_file_exist(filename), "File not found: " << filename);
 }
-#endif
 
-int run_fuzzer(int argc, const char **argv, Fuzzer &fuzzer)
+int Notify::notify(const char *parameter)
 {
-  TRY_ENTRY();
+  std::vector<std::string> margs = args;
+  for (std::string &s: margs)
+    boost::replace_all(s, "%s", parameter);
 
-  if (argc < 2)
-  {
-    std::cout << "usage: " << argv[0] << " " << "<filename>" << std::endl;
-    return 1;
-  }
+  return tools::spawn(filename.c_str(), margs, false);
+}
 
-#ifdef __AFL_HAVE_MANUAL_CONTROL
-  __AFL_INIT();
-#endif
-
-  int ret = fuzzer.init();
-  if (ret)
-    return ret;
-
-  const std::string filename = argv[1];
-  while (__AFL_LOOP(1000))
-  {
-    ret = fuzzer.run(filename);
-    if (ret)
-      return ret;
-  }
-
-  return 0;
-
-  CATCH_ENTRY_L0("run_fuzzer", 1);
 }

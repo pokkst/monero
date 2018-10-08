@@ -1554,7 +1554,7 @@ namespace tools
         rpc_transfers.global_index = td.m_global_output_index;
         rpc_transfers.tx_hash      = epee::string_tools::pod_to_hex(td.m_txid);
         rpc_transfers.subaddr_index = {td.m_subaddr_index.major, td.m_subaddr_index.minor};
-        rpc_transfers.key_image    = req.verbose && td.m_key_image_known ? epee::string_tools::pod_to_hex(td.m_key_image) : "";
+        rpc_transfers.key_image    = td.m_key_image_known ? epee::string_tools::pod_to_hex(td.m_key_image) : "";
         res.transfers.push_back(rpc_transfers);
       }
     }
@@ -2173,8 +2173,8 @@ namespace tools
     for (std::list<std::pair<crypto::hash, tools::wallet2::payment_details>>::const_iterator i = payments.begin(); i != payments.end(); ++i) {
       if (i->second.m_tx_hash == txid)
       {
-        fill_transfer_entry(res.transfer, i->second.m_tx_hash, i->first, i->second);
-        return true;
+        res.transfers.resize(res.transfers.size() + 1);
+        fill_transfer_entry(res.transfers.back(), i->second.m_tx_hash, i->first, i->second);
       }
     }
 
@@ -2183,8 +2183,8 @@ namespace tools
     for (std::list<std::pair<crypto::hash, tools::wallet2::confirmed_transfer_details>>::const_iterator i = payments_out.begin(); i != payments_out.end(); ++i) {
       if (i->first == txid)
       {
-        fill_transfer_entry(res.transfer, i->first, i->second);
-        return true;
+        res.transfers.resize(res.transfers.size() + 1);
+        fill_transfer_entry(res.transfers.back(), i->first, i->second);
       }
     }
 
@@ -2193,8 +2193,8 @@ namespace tools
     for (std::list<std::pair<crypto::hash, tools::wallet2::unconfirmed_transfer_details>>::const_iterator i = upayments.begin(); i != upayments.end(); ++i) {
       if (i->first == txid)
       {
-        fill_transfer_entry(res.transfer, i->first, i->second);
-        return true;
+        res.transfers.resize(res.transfers.size() + 1);
+        fill_transfer_entry(res.transfers.back(), i->first, i->second);
       }
     }
 
@@ -2205,9 +2205,15 @@ namespace tools
     for (std::list<std::pair<crypto::hash, tools::wallet2::pool_payment_details>>::const_iterator i = pool_payments.begin(); i != pool_payments.end(); ++i) {
       if (i->second.m_pd.m_tx_hash == txid)
       {
-        fill_transfer_entry(res.transfer, i->first, i->second);
-        return true;
+        res.transfers.resize(res.transfers.size() + 1);
+        fill_transfer_entry(res.transfers.back(), i->first, i->second);
       }
+    }
+
+    if (!res.transfers.empty())
+    {
+      res.transfer = res.transfers.front(); // backward compat
+      return true;
     }
 
     er.code = WALLET_RPC_ERROR_CODE_WRONG_TXID;
@@ -3352,7 +3358,8 @@ public:
       {
         try
         {
-          wal = tools::wallet2::make_from_json(vm, true, from_json, password_prompt);
+          auto rc = tools::wallet2::make_from_json(vm, true, from_json, password_prompt);
+          wal = std::move(rc.first);
         }
         catch (const std::exception &e)
         {
@@ -3457,6 +3464,8 @@ public:
 std::string const t_executor::NAME = "Wallet RPC Daemon";
 
 int main(int argc, char** argv) {
+  TRY_ENTRY();
+
   namespace po = boost::program_options;
 
   const auto arg_wallet_file = wallet_args::arg_wallet_file();
@@ -3500,4 +3509,5 @@ int main(int argc, char** argv) {
   }
 
   return daemonizer::daemonize(argc, const_cast<const char**>(argv), t_executor{}, *vm) ? 0 : 1;
+  CATCH_ENTRY_L0("main", 1);
 }

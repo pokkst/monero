@@ -376,15 +376,15 @@ WalletImpl::WalletImpl(NetworkType nettype, uint64_t kdf_rounds)
     , m_rebuildWalletCache(false)
     , m_is_connected(false)
 {
-    m_wallet = new tools::wallet2(static_cast<cryptonote::network_type>(nettype), kdf_rounds, true);
-    m_history = new TransactionHistoryImpl(this);
-    m_wallet2Callback = new Wallet2CallbackImpl(this);
+    m_wallet = std::make_unique<tools::wallet2>(static_cast<cryptonote::network_type>(nettype), kdf_rounds, true);
+    m_history = std::make_unique<TransactionHistoryImpl>(this);
+    m_wallet2Callback = std::make_unique<Wallet2CallbackImpl>(this);
     m_wallet->callback(m_wallet2Callback);
     m_refreshThreadDone = false;
     m_refreshEnabled = false;
-    m_addressBook = new AddressBookImpl(this);
-    m_subaddress = new SubaddressImpl(this);
-    m_subaddressAccount = new SubaddressAccountImpl(this);
+    m_addressBook = std::make_unique<AddressBookImpl>(this);
+    m_subaddress = std::make_unique<SubaddressImpl>(this);
+    m_subaddressAccount = std::make_unique<SubaddressAccountImpl>(this);
 
 
     m_refreshIntervalMillis = DEFAULT_REFRESH_INTERVAL_MILLIS;
@@ -405,12 +405,6 @@ WalletImpl::~WalletImpl()
     close(false); // do not store wallet as part of the closing activities
     // Stop refresh thread
     stopRefresh();
-    delete m_wallet2Callback;
-    delete m_history;
-    delete m_addressBook;
-    delete m_subaddress;
-    delete m_subaddressAccount;
-    delete m_wallet;
     LOG_PRINT_L1(__FUNCTION__ << " finished");
 }
 
@@ -1551,22 +1545,22 @@ void WalletImpl::disposeTransaction(PendingTransaction *t)
 
 TransactionHistory *WalletImpl::history()
 {
-    return m_history;
+    return m_history.get();
 }
 
 AddressBook *WalletImpl::addressBook()
 {
-    return m_addressBook;
+    return m_addressBook.get();
 }
 
 Subaddress *WalletImpl::subaddress()
 {
-    return m_subaddress;
+    return m_subaddress.get();
 }
 
 SubaddressAccount *WalletImpl::subaddressAccount()
 {
-    return m_subaddressAccount;
+    return m_subaddressAccount.get();
 }
 
 void WalletImpl::setListener(WalletListener *l)
@@ -2147,6 +2141,28 @@ bool WalletImpl::blackballOutputs(const std::vector<std::string> &outputs, bool 
     if (!ret)
     {
         setStatusError(tr("Failed to set blackballed outputs"));
+        return false;
+    }
+    return true;
+}
+
+bool WalletImpl::blackballOutput(const std::string &amount, const std::string &offset)
+{
+    uint64_t raw_amount, raw_offset;
+    if (!epee::string_tools::get_xtype_from_string(raw_amount, amount))
+    {
+        setStatusError(tr("Failed to parse output amount"));
+        return false;
+    }
+    if (!epee::string_tools::get_xtype_from_string(raw_offset, offset))
+    {
+        setStatusError(tr("Failed to parse output offset"));
+        return false;
+    }
+    bool ret = m_wallet->blackball_output(std::make_pair(raw_amount, raw_offset));
+    if (!ret)
+    {
+        setStatusError(tr("Failed to blackball output"));
         return false;
     }
     return true;

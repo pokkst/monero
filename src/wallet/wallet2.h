@@ -68,6 +68,7 @@ namespace tools
 {
   class ringdb;
   class wallet2;
+  class Notify;
 
   class wallet_keys_unlocker
   {
@@ -176,7 +177,7 @@ namespace tools
     static void init_options(boost::program_options::options_description& desc_params);
 
     //! Uses stdin and stdout. Returns a wallet2 if no errors.
-    static std::unique_ptr<wallet2> make_from_json(const boost::program_options::variables_map& vm, bool unattended, const std::string& json_file, const std::function<boost::optional<password_container>(const char *, bool)> &password_prompter);
+    static std::pair<std::unique_ptr<wallet2>, password_container> make_from_json(const boost::program_options::variables_map& vm, bool unattended, const std::string& json_file, const std::function<boost::optional<password_container>(const char *, bool)> &password_prompter);
 
     //! Uses stdin and stdout. Returns a wallet2 and password for `wallet_file` if no errors.
     static std::pair<std::unique_ptr<wallet2>, password_container>
@@ -1176,6 +1177,8 @@ namespace tools
 
     void change_password(const std::string &filename, const epee::wipeable_string &original_password, const epee::wipeable_string &new_password);
 
+    void set_tx_notify(const std::shared_ptr<tools::Notify> &notify) { m_tx_notify = notify; }
+
   private:
     /*!
      * \brief  Stores wallet information to wallet file.
@@ -1353,6 +1356,8 @@ namespace tools
     boost::optional<epee::wipeable_string> m_encrypt_keys_after_refresh;
 
     bool m_unattended;
+
+    std::shared_ptr<tools::Notify> m_tx_notify;
   };
 }
 BOOST_CLASS_VERSION(tools::wallet2, 25)

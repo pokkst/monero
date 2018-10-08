@@ -66,6 +66,7 @@ using namespace epee;
 #include "memwipe.h"
 #include "common/base58.h"
 #include "common/dns_utils.h"
+#include "common/notify.h"
 #include "ringct/rctSigs.h"
 #include "ringdb.h"
 
@@ -162,6 +163,7 @@ struct options {
   };
   const command_line::arg_descriptor<uint64_t> kdf_rounds = {"kdf-rounds", tools::wallet2::tr("Number of rounds for the key derivation function"), 1};
   const command_line::arg_descriptor<std::string> hw_device = {"hw-device", tools::wallet2::tr("HW device to use"), ""};
+  const command_line::arg_descriptor<std::string> tx_notify = { "tx-notify" , "Run a program for each new incoming transaction, '%s' will be replaced by the transaction hash" , "" };
 };
 
 void do_prepare_file_names(const std::string& file_path, std::string& keys_file, std::string& wallet_file)
@@ -268,6 +270,17 @@ std::unique_ptr<tools::wallet2> make_basic(const boost::program_options::variabl
   boost::filesystem::path ringdb_path = command_line::get_arg(vm, opts.shared_ringdb_dir);
   wallet->set_ring_database(ringdb_path.string());
   wallet->device_name(device_name);
+
+  try
+  {
+    if (!command_line::is_arg_defaulted(vm, opts.tx_notify))
+      wallet->set_tx_notify(std::shared_ptr<tools::Notify>(new tools::Notify(command_line::get_arg(vm, opts.tx_notify).c_str())));
+  }
+  catch (const std::exception &e)
+  {
+    MERROR("Failed to parse tx notify spec");
+  }
+
   return wallet;
 }
 
@@ -300,7 +313,7 @@ boost::optional<tools::password_container> get_password(const boost::program_opt
   return password_prompter(verify ? tr("Enter a new password for the wallet") : tr("Wallet password"), verify);
 }
 
-std::unique_ptr<tools::wallet2> generate_from_json(const std::string& json_file, const boost::program_options::variables_map& vm, bool unattended, const options& opts, const std::function<boost::optional<tools::password_container>(const char *, bool)> &password_prompter)
+std::pair<std::unique_ptr<tools::wallet2>, tools::password_container> generate_from_json(const std::string& json_file, const boost::program_options::variables_map& vm, bool unattended, const options& opts, const std::function<boost::optional<tools::password_container>(const char *, bool)> &password_prompter)
 {
   const bool testnet = command_line::get_arg(vm, opts.testnet);
   const bool stagenet = command_line::get_arg(vm, opts.stagenet);
@@ -310,6 +323,7 @@ std::unique_ptr<tools::wallet2> generate_from_json(const std::string& json_file,
   false. Gcc will coerce this into unique_ptr(nullptr), but clang correctly
   fails. This large wrapper is for the use of that macro */
   std::unique_ptr<tools::wallet2> wallet;
+  epee::wipeable_string password;
   const auto do_generate = [&]() -> bool {
     std::string buf;
     if (!epee::file_io_utils::load_file_to_string(json_file, buf)) {
@@ -447,10 +461,12 @@ std::unique_ptr<tools::wallet2> generate_from_json(const std::string& json_file,
       if (!field_seed.empty())
       {
         wallet->generate(field_filename, field_password, recovery_key, recover, false, create_address_file);
+        password = field_password;
       }
       else if (field_viewkey.empty() && !field_spendkey.empty())
       {
         wallet->generate(field_filename, field_password, spendkey, recover, false, create_address_file);
+        password = field_password;
       }
       else
       {
@@ -477,6 +493,7 @@ std::unique_ptr<tools::wallet2> generate_from_json(const std::string& json_file,
             THROW_WALLET_EXCEPTION(tools::error::wallet_internal_error, tools::wallet2::tr("Address must be specified in order to create watch-only wallet"));
           }
           wallet->generate(field_filename, field_password, address, viewkey, create_address_file);
+          password = field_password;
         }
         else
         {
@@ -484,6 +501,7 @@ std::unique_ptr<tools::wallet2> generate_from_json(const std::string& json_file,
             THROW_WALLET_EXCEPTION(tools::error::wallet_internal_error, tools::wallet2::tr("failed to verify spend key secret key"));
           }
           wallet->generate(field_filename, field_password, address, spendkey, viewkey, create_address_file);
+          password = field_password;
         }
       }
     }
@@ -496,9 +514,9 @@ std::unique_ptr<tools::wallet2> generate_from_json(const std::string& json_file,
 
   if (do_generate())
   {
-    return wallet;
+    return {std::move(wallet), tools::password_container(password)};
   }
-  return nullptr;
+  return {nullptr, tools::password_container{}};
 }
 
 static void throw_on_rpc_response_error(const boost::optional<std::string> &status, const char *method)
@@ -838,9 +856,10 @@ void wallet2::init_options(boost::program_options::options_description& desc_par
   command_line::add_arg(desc_params, opts.shared_ringdb_dir);
   command_line::add_arg(desc_params, opts.kdf_rounds);
   command_line::add_arg(desc_params, opts.hw_device);
+  command_line::add_arg(desc_params, opts.tx_notify);
 }
 
-std::unique_ptr<wallet2> wallet2::make_from_json(const boost::program_options::variables_map& vm, bool unattended, const std::string& json_file, const std::function<boost::optional<tools::password_container>(const char *, bool)> &password_prompter)
+std::pair<std::unique_ptr<wallet2>, tools::password_container> wallet2::make_from_json(const boost::program_options::variables_map& vm, bool unattended, const std::string& json_file, const std::function<boost::optional<tools::password_container>(const char *, bool)> &password_prompter)
 {
   const options opts{};
   return generate_from_json(json_file, vm, unattended, opts, password_prompter);
@@ -1325,9 +1344,9 @@ void wallet2::process_new_transaction(const crypto::hash &txid, const cryptonote
   // (that is, the prunable stuff may or may not be included)
   if (!miner_tx && !pool)
     process_unconfirmed(txid, tx, height);
-  std::vector<size_t> outs;
   std::unordered_map<cryptonote::subaddress_index, uint64_t> tx_money_got_in_outs;  // per receiving subaddress index
   crypto::public_key tx_pub_key = null_pkey;
+  bool notify = false;
 
   std::vector<tx_extra_field> local_tx_extra_fields;
   if (tx_cache_data.tx_extra_fields.empty())
@@ -1347,6 +1366,7 @@ void wallet2::process_new_transaction(const crypto::hash &txid, const cryptonote
   uint64_t total_received_1 = 0;
   while (!tx.vout.empty())
   {
+    std::vector<size_t> outs;
     // if tx.vout is not empty, we loop through all tx pubkeys
 
     tx_extra_pub_key pub_key_field;
@@ -1567,6 +1587,7 @@ void wallet2::process_new_transaction(const crypto::hash &txid, const cryptonote
 	      m_callback->on_money_received(height, txid, tx, td.m_amount, td.m_subaddr_index);
           }
           total_received_1 += amount;
+          notify = true;
         }
 	else if (m_transfers[kit->second].m_spent || m_transfers[kit->second].amount() >= tx_scan_info[o].amount)
         {
@@ -1634,6 +1655,7 @@ void wallet2::process_new_transaction(const crypto::hash &txid, const cryptonote
 	      m_callback->on_money_received(height, txid, tx, td.m_amount, td.m_subaddr_index);
           }
           total_received_1 += extra_amount;
+          notify = true;
         }
       }
     }
@@ -1707,10 +1729,14 @@ void wallet2::process_new_transaction(const crypto::hash &txid, const cryptonote
   }
 
   // remove change sent to the spending subaddress account from the list of received funds
+  uint64_t sub_change = 0;
   for (auto i = tx_money_got_in_outs.begin(); i != tx_money_got_in_outs.end();)
   {
     if (subaddr_account && i->first.major == *subaddr_account)
+    {
+      sub_change += i->second;
       i = tx_money_got_in_outs.erase(i);
+    }
     else
       ++i;
   }
@@ -1755,7 +1781,7 @@ void wallet2::process_new_transaction(const crypto::hash &txid, const cryptonote
       }
     }
 
-    uint64_t total_received_2 = 0;
+    uint64_t total_received_2 = sub_change;
     for (const auto& i : tx_money_got_in_outs)
       total_received_2 += i.second;
     if (total_received_1 != total_received_2)
@@ -1789,6 +1815,13 @@ void wallet2::process_new_transaction(const crypto::hash &txid, const cryptonote
         m_payments.emplace(payment_id, payment);
       LOG_PRINT_L2("Payment found in " << (pool ? "pool" : "block") << ": " << payment_id << " / " << payment.m_tx_hash << " / " << payment.m_amount);
     }
+  }
+
+  if (notify)
+  {
+    std::shared_ptr<tools::Notify> tx_notify = m_tx_notify;
+    if (tx_notify)
+      tx_notify->notify(epee::string_tools::pod_to_hex(txid).c_str());
   }
 }
 //----------------------------------------------------------------------------------------------------
@@ -6730,11 +6763,23 @@ void wallet2::get_outs(std::vector<std::vector<tools::wallet2::get_outs_entry>> 
         }
 
         // while we still need more mixins
+        uint64_t num_usable_outs = num_outs;
+        bool allow_blackballed = false;
         while (num_found < requested_outputs_count)
         {
           // if we've gone through every possible output, we've gotten all we can
-          if (seen_indices.size() == num_outs)
-            break;
+          if (seen_indices.size() == num_usable_outs)
+          {
+            // there is a first pass which rejects blackballed outputs, then a second pass
+            // which allows them if we don't have enough non blackballed outputs to reach
+            // the required amount of outputs (since consensus does not care about blackballed
+            // outputs, we still need to reach the minimum ring size)
+            if (allow_blackballed)
+              break;
+            MINFO("Not enough non blackballed outputs, we'll allow blackballed ones");
+            allow_blackballed = true;
+            num_usable_outs = num_outs;
+          }
 
           // get a random output index from the DB.  If we've already seen it,
           // return to the top of the loop and try again, otherwise add it to the
@@ -6808,12 +6853,24 @@ void wallet2::get_outs(std::vector<std::vector<tools::wallet2::get_outs_entry>> 
 
           if (seen_indices.count(i))
             continue;
-          if (is_output_blackballed(std::make_pair(amount, i))) // don't add blackballed outputs
+          if (!allow_blackballed && is_output_blackballed(std::make_pair(amount, i))) // don't add blackballed outputs
+          {
+            --num_usable_outs;
             continue;
+          }
           seen_indices.emplace(i);
 
           LOG_PRINT_L2("picking " << i << " as " << type);
           req.outputs.push_back({amount, i});
+          ++num_found;
+        }
+
+        // if we had enough unusable outputs, we might fall off here and still
+        // have too few outputs, so we stuff with one to keep counts good, and
+        // we'll error out later
+        while (num_found < requested_outputs_count)
+        {
+          req.outputs.push_back({amount, 0});
           ++num_found;
         }
       }

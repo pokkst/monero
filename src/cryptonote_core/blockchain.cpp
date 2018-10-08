@@ -52,6 +52,7 @@
 #include "cryptonote_core.h"
 #include "ringct/rctSigs.h"
 #include "common/perf_timer.h"
+#include "common/notify.h"
 #if defined(PER_BLOCK_CHECKPOINT)
 #include "blocks/blocks.h"
 #endif
@@ -137,8 +138,8 @@ static const struct {
 
   { 6, 971400, 0, 1501709789 },
   { 7, 1057027, 0, 1512211236 },
-  { 8, 1057058, 0, 1515967497 },
-  { 9, 1057778, 0, 1515967498 },
+  { 8, 1057058, 0, 1533211200 },
+  { 9, 1057778, 0, 1533297600 },
 };
 static const uint64_t testnet_hard_fork_version_1_till = 624633;
 
@@ -3551,6 +3552,10 @@ leave:
   m_tx_pool.on_blockchain_inc(new_height, id);
   get_difficulty_for_next_block(); // just to cache it
   invalidate_block_template_cache();
+
+  std::shared_ptr<tools::Notify> block_notify = m_block_notify;
+  if (block_notify)
+    block_notify->notify(epee::string_tools::pod_to_hex(id).c_str());
 
   return true;
 }
