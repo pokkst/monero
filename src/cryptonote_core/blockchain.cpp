@@ -4253,6 +4253,9 @@ bool Blockchain::update_next_cumulative_weight_limit(uint64_t *long_term_effecti
 //------------------------------------------------------------------
 bool Blockchain::add_new_block(const block& bl, block_verification_context& bvc)
 {
+  try
+  {
+
   LOG_PRINT_L3("Blockchain::" << __func__);
   crypto::hash id = get_block_hash(bl);
   CRITICAL_REGION_LOCAL(m_tx_pool);//to avoid deadlock lets lock tx_pool for whole add/reorganize process
@@ -4280,6 +4283,14 @@ bool Blockchain::add_new_block(const block& bl, block_verification_context& bvc)
 
   rtxn_guard.stop();
   return handle_block_to_main_chain(bl, id, bvc);
+
+  }
+  catch (const std::exception &e)
+  {
+    LOG_ERROR("Exception at [add_new_block], what=" << e.what());
+    bvc.m_verifivation_failed = true;
+    return false;
+  }
 }
 //------------------------------------------------------------------
 //TODO: Refactor, consider returning a failure height and letting
@@ -5111,7 +5122,7 @@ void Blockchain::cancel()
 }
 
 #if defined(PER_BLOCK_CHECKPOINT)
-static const char expected_block_hashes_hash[] = "da1cafd8f186d06c2985ca84cab7980d276538ac86086a38f25514a52e5b09b4";
+static const char expected_block_hashes_hash[] = "37e15136d7527e47940ef85bff9d258b940c583bcc2e820aa9a98833a7344ece";
 void Blockchain::load_compiled_in_block_hashes(const GetCheckpointsCallback& get_checkpoints)
 {
   if (get_checkpoints == nullptr || !m_fast_sync)
