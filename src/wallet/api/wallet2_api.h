@@ -886,7 +886,8 @@ struct Wallet
                                                    optional<std::vector<uint64_t>> amount, uint32_t mixin_count,
                                                    PendingTransaction::Priority = PendingTransaction::Priority_Low,
                                                    uint32_t subaddr_account = 0,
-                                                   std::set<uint32_t> subaddr_indices = {}) = 0;
+                                                   std::set<uint32_t> subaddr_indices = {},
+                                                   const std::set<std::string> &preferred_inputs = {}) = 0;
 
     /*!
      * \brief createTransaction creates transaction. if dst_addr is an integrated address, payment_id is ignored
@@ -905,7 +906,34 @@ struct Wallet
                                                    optional<uint64_t> amount, uint32_t mixin_count,
                                                    PendingTransaction::Priority = PendingTransaction::Priority_Low,
                                                    uint32_t subaddr_account = 0,
-                                                   std::set<uint32_t> subaddr_indices = {}) = 0;
+                                                   std::set<uint32_t> subaddr_indices = {},
+                                                   const std::set<std::string> &preferred_inputs = {}) = 0;
+
+    /*!
+     * \brief createTransactionSingle creates transaction with single input
+     * \param key_image               key image as string
+     * \param dst_addr                destination address as string
+     * \param priority
+     * \return                        PendingTransaction object. caller is responsible to check PendingTransaction::status()
+     *                                after object returned
+     */
+
+    virtual PendingTransaction * createTransactionSingle(const std::string &key_image, const std::string &dst_addr,
+            size_t outputs = 1, PendingTransaction::Priority = PendingTransaction::Priority_Low) = 0;
+
+
+    /*!
+     * \brief createTransactionSelected creates transaction with selected inputs
+     * \param key_images              vector of key images as string
+     * \param dst_addr                destination address as string
+     * \param outputs                 split amount into this many outputs of equal amount
+     * \param priority                transaction priority
+     * \return                        PendingTransaction object. caller is responsible to check PendingTransaction::status()
+     *                                after object returned
+     */
+
+    virtual PendingTransaction * createTransactionSelected(const std::vector<std::string> &key_images, const std::string &dst_addr,
+                                                           size_t outputs = 1, PendingTransaction::Priority = PendingTransaction::Priority_Low) = 0;
 
     /*!
      * \brief createSweepUnmixableTransaction creates transaction with unmixable outputs.
