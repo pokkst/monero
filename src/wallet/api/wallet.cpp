@@ -1512,6 +1512,8 @@ PendingTransaction *WalletImpl::createTransactionMultDest(const std::vector<stri
 
 {
     clearStatus();
+    // Pause refresh thread while creating transaction
+    pauseRefresh();
       
     cryptonote::address_parse_info info;
 
@@ -1678,7 +1680,8 @@ PendingTransaction *WalletImpl::createTransactionMultDest(const std::vector<stri
     } while (false);
 
     statusWithErrorString(transaction->m_status, transaction->m_errorString);
-
+    // Resume refresh thread
+    startRefresh();
     return transaction;
 }
 
