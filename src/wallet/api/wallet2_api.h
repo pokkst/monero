@@ -260,6 +260,51 @@ struct AddressBook
     virtual int lookupPaymentID(const std::string &payment_id) const = 0;
 };
 
+/**
+ * @brief The CoinsInfo - interface for displaying coins information
+ */
+struct CoinsInfo
+{
+    virtual ~CoinsInfo() = 0;
+
+    virtual uint64_t blockHeight() const = 0;
+    virtual std::string hash() const = 0;
+    virtual size_t internalOutputIndex() const = 0;
+    virtual uint64_t globalOutputIndex() const = 0;
+    virtual bool spent() const = 0;
+    virtual bool frozen() const = 0;
+    virtual uint64_t spentHeight() const = 0;
+    virtual uint64_t amount() const = 0;
+    virtual bool rct() const = 0;
+    virtual bool keyImageKnown() const = 0;
+    virtual size_t pkIndex() const = 0;
+    virtual uint32_t subaddrIndex() const = 0;
+    virtual uint32_t subaddrAccount() const = 0;
+    virtual std::string address() const = 0;
+    virtual std::string addressLabel() const = 0;
+    virtual std::string keyImage() const = 0;
+    virtual uint64_t unlockTime() const = 0;
+    virtual bool unlocked() const = 0;
+    virtual std::string pubKey() const = 0;
+    virtual bool coinbase() const = 0;
+    virtual std::string description() const = 0;
+};
+
+struct Coins
+{
+    virtual ~Coins() = 0;
+    virtual int count() const = 0;
+    virtual CoinsInfo * coin(int index)  const = 0;
+    virtual std::vector<CoinsInfo*> getAll() const = 0;
+    virtual void refresh() = 0;
+    virtual void setFrozen(std::string public_key) = 0;
+    virtual void setFrozen(int index) = 0;
+    virtual void thaw(std::string public_key) = 0;
+    virtual void thaw(int index) = 0;
+    virtual bool isTransferUnlocked(uint64_t unlockTime, uint64_t blockHeight) = 0;
+    virtual void setDescription(const std::string &public_key, const std::string &description) = 0;
+};
+
 struct SubaddressRow {
 public:
     SubaddressRow(std::size_t _rowId, const std::string &_address, const std::string &_label):
@@ -841,7 +886,8 @@ struct Wallet
                                                    optional<std::vector<uint64_t>> amount, uint32_t mixin_count,
                                                    PendingTransaction::Priority = PendingTransaction::Priority_Low,
                                                    uint32_t subaddr_account = 0,
-                                                   std::set<uint32_t> subaddr_indices = {}) = 0;
+                                                   std::set<uint32_t> subaddr_indices = {},
+                                                   const std::set<std::string> &preferred_inputs = {}) = 0;
 
     /*!
      * \brief createTransaction creates transaction. if dst_addr is an integrated address, payment_id is ignored
@@ -860,7 +906,34 @@ struct Wallet
                                                    optional<uint64_t> amount, uint32_t mixin_count,
                                                    PendingTransaction::Priority = PendingTransaction::Priority_Low,
                                                    uint32_t subaddr_account = 0,
-                                                   std::set<uint32_t> subaddr_indices = {}) = 0;
+                                                   std::set<uint32_t> subaddr_indices = {},
+                                                   const std::set<std::string> &preferred_inputs = {}) = 0;
+
+    /*!
+     * \brief createTransactionSingle creates transaction with single input
+     * \param key_image               key image as string
+     * \param dst_addr                destination address as string
+     * \param priority
+     * \return                        PendingTransaction object. caller is responsible to check PendingTransaction::status()
+     *                                after object returned
+     */
+
+    virtual PendingTransaction * createTransactionSingle(const std::string &key_image, const std::string &dst_addr,
+            size_t outputs = 1, PendingTransaction::Priority = PendingTransaction::Priority_Low) = 0;
+
+
+    /*!
+     * \brief createTransactionSelected creates transaction with selected inputs
+     * \param key_images              vector of key images as string
+     * \param dst_addr                destination address as string
+     * \param outputs                 split amount into this many outputs of equal amount
+     * \param priority                transaction priority
+     * \return                        PendingTransaction object. caller is responsible to check PendingTransaction::status()
+     *                                after object returned
+     */
+
+    virtual PendingTransaction * createTransactionSelected(const std::vector<std::string> &key_images, const std::string &dst_addr,
+                                                           size_t outputs = 1, PendingTransaction::Priority = PendingTransaction::Priority_Low) = 0;
 
     /*!
      * \brief createSweepUnmixableTransaction creates transaction with unmixable outputs.
@@ -936,6 +1009,7 @@ struct Wallet
 
     virtual TransactionHistory * history() = 0;
     virtual AddressBook * addressBook() = 0;
+    virtual Coins * coins() = 0;
     virtual Subaddress * subaddress() = 0;
     virtual SubaddressAccount * subaddressAccount() = 0;
     virtual void setListener(WalletListener *) = 0;
