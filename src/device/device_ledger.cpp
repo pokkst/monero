@@ -43,10 +43,6 @@ namespace hw {
 
   #ifdef WITH_DEVICE_LEDGER
 
-    namespace {
-        bool apdu_verbose =true;
-    }
-
     #undef MONERO_DEFAULT_LOG_CATEGORY
     #define MONERO_DEFAULT_LOG_CATEGORY "device.ledger"
 
